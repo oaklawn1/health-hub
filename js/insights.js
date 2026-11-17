@@ -40,8 +40,8 @@ const D = {
   intake(date) {
     const rows = Store.on("food", date);
     if (!rows.length) return null;
-    const t = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, items: rows.length };
-    rows.forEach(r => ["kcal", "protein", "carbs", "fat", "fiber"].forEach(k => t[k] += +r[k] || 0));
+    const t = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, items: rows.length };
+    rows.forEach(r => { ["kcal", "protein", "carbs", "fat", "fiber"].forEach(k => t[k] += +r[k] || 0); t.sugar += Foods.sugarOf(r); });
     return t;
   },
   bmr(date) {
@@ -61,7 +61,14 @@ const D = {
     return i && b ? i.kcal - b.kcal : null;
   },
   stepGoal(date) { const p = D.profile(), g = D.garmin(date); return p.step_goal || (g && g.step_goal) || 8000; },
-  proteinTarget() { const w = D.weightOn(U.today()); return w ? Math.round(w * (D.profile().protein_per_kg || 1.6)) : null; },
+  // Protein goal: "manual" = a fixed number of grams; otherwise automatic = latest weight × grams per kg (updates as weight changes).
+  proteinTarget() {
+    const p = D.profile();
+    if (p.protein_mode === "manual" && +p.protein_g > 0) return Math.round(+p.protein_g);
+    const w = D.weightOn(U.today()); return w ? Math.round(w * (+p.protein_per_kg || 1.6)) : null;
+  },
+  proteinBasis() { const p = D.profile(); return p.protein_mode === "manual" && +p.protein_g > 0 ? "set manually" : `${+p.protein_per_kg || 1.6} g per kg body weight`; },
+  sugarLimit() { return +D.profile().sugar_limit || 50; },
   workouts(from, to) { return Store.all("hevy_workout").filter(w => w.date >= from && w.date <= to); },
   // Working sets per muscle group. Primary muscle = 1 set, secondary muscles = half a set.
   muscleSets(from, to) {
@@ -176,11 +183,15 @@ const Insights = (() => {
     if (intakes.length >= 3) {
       const prot = U.avg(intakes.map(i => i.protein)), target = D.proteinTarget();
       if (target) {
-        if (prot < target * 0.8) add("warn", "Nutrition", `Protein is low: ${U.r(prot)} g/day`, `Your target is about ${target} g/day (${p.protein_per_kg} g per kg). You are ${U.r(target - prot)} g short on average. Easy North-Indian fixes: an extra katori of dal or curd, paneer/soya chunks, eggs, roasted chana, or a whey scoop.`);
+        if (prot < target * 0.8) add("warn", "Nutrition", `Protein is low: ${U.r(prot)} g/day`, `Your target is about ${target} g/day (${D.proteinBasis()}). You are ${U.r(target - prot)} g short on average. Easy North-Indian fixes: an extra katori of dal or curd, paneer/soya chunks, eggs, roasted chana, or a whey scoop.`);
         else add("good", "Nutrition", `Protein on track: ${U.r(prot)} g/day`, `Close to your ${target} g/day target, which supports muscle while ${p.goal === "lose" ? "losing fat" : "training"}.`);
       }
       const fib = U.avg(intakes.map(i => i.fiber));
       if (fib < 22) add("warn", "Nutrition", `Fibre is low: ${U.r(fib)} g/day`, "Aim for 25-30 g. Add salad, sabzi, whole fruit, dal with skin, or swap some rice for roti.");
+      const sug = U.avg(intakes.map(i => i.sugar)), sLim = D.sugarLimit();
+      const sweetDays = intakes.filter(i => i.sugar > sLim).length;
+      if (sug > sLim) add("warn", "Nutrition", `Sugar is high: ${U.r(sug)} g/day`, `Above your ${sLim} g/day limit on ${sweetDays} of ${intakes.length} logged days. The usual North-Indian sources are sugar in chai, sweets/mithai, sweet lassi, juices and soft drinks. Milk and fruit sugar counts here too, so cut added sugar first.`);
+      else add("good", "Nutrition", `Sugar under control: ${U.r(sug)} g/day`, `Within your ${sLim} g/day limit (this includes natural sugar from milk and fruit).`);
       const fatPct = U.avg(intakes.map(i => i.kcal ? i.fat * 9 / i.kcal * 100 : null));
       if (fatPct > 40) add("warn", "Nutrition", `${U.r(fatPct)}% of calories come from fat`, "That is on the high side - usually from ghee, oil, paneer gravies and fried snacks. Cutting cooking fat is the easiest calorie saving.");
     }

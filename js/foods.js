@@ -221,9 +221,44 @@ const FOOD_ROWS = [
   ["Green chutney", "tbsp", 15, 10, 0.4, 1.5, 0.3, 0.5, "dhaniya pudina"],
 ];
 
+// Total sugars (g per serving): natural sugar (milk, fruit, vegetables) plus added sugar in typical recipes.
+const SUGAR = {
+  "Roti / Chapati (plain)": 0.4, "Roti with ghee": 0.4, "Phulka (small, thin)": 0.3, "Paratha (plain)": 0.8, "Aloo paratha": 1.5, "Gobi paratha": 2,
+  "Paneer paratha": 1.5, "Mooli paratha": 2, "Methi paratha / Thepla": 1, "Naan (plain)": 2.5, "Butter naan": 2.5, "Garlic naan": 2.5, "Tandoori roti": 0.6,
+  "Rumali roti": 0.8, "Missi roti": 1, "Makki ki roti": 0.8, "Bajra roti": 0.5, "Puri": 0.2, "Bhatura": 2, "Kulcha": 2, "Amritsari kulcha (stuffed)": 3,
+  "Bread slice (white)": 1.4, "Bread slice (brown / atta)": 1.5, "Pav": 1.5,
+  "Rice (steamed, white)": 0.1, "Brown rice (cooked)": 0.5, "Jeera rice": 0.1, "Veg pulao": 1.5, "Veg biryani": 3, "Chicken biryani": 3, "Mutton biryani": 3,
+  "Khichdi (dal + rice)": 1, "Curd rice": 5, "Rajma chawal": 3, "Kadhi chawal": 4, "Poha": 3, "Upma": 2, "Dalia (savoury / with milk)": 8,
+  "Oats with milk": 12, "Cornflakes with milk": 16, "Muesli with milk": 20, "Maggi / instant noodles": 1.5,
+  "Dal tadka (arhar / toor)": 1.5, "Dal fry": 1.5, "Moong dal": 1, "Masoor dal": 1.2, "Urad dal (dhuli)": 1, "Chana dal": 2, "Dal makhani": 3,
+  "Panchmel / mixed dal": 1.5, "Rajma": 2, "Chole / Chana masala": 4, "Kala chana curry": 3, "Lobia curry": 2, "Kadhi pakora": 4, "Sambar": 3,
+  "Moong sprouts (boiled / salad)": 2, "Boiled chana chaat": 4, "Soya chunks curry": 3,
+  "Aloo gobi": 3, "Aloo matar": 3.5, "Jeera aloo / Sukhi aloo": 1.5, "Dum aloo": 4, "Aloo methi": 2, "Aloo palak": 2, "Bhindi masala": 3, "Baingan bharta": 5,
+  "Mix veg sabzi": 4, "Lauki / Ghiya sabzi": 3.5, "Tori / Tinda sabzi": 3, "Karela sabzi": 2, "Gajar matar": 7, "Patta gobi sabzi": 4, "Beans aloo": 3,
+  "Shimla mirch aloo": 3.5, "Sarson ka saag": 2, "Matar mushroom": 4, "Malai kofta": 8, "Arbi sabzi": 1, "Kaddu / Sitaphal sabzi": 7,
+  "Paneer (raw)": 3, "Palak paneer": 3, "Paneer butter masala": 7, "Shahi paneer": 7, "Kadai paneer": 5, "Matar paneer": 5, "Paneer bhurji": 3, "Paneer tikka": 4,
+  "Tofu (raw)": 0.7, "Egg (boiled)": 0.3, "Egg white (boiled)": 0.2, "Omelette (2 eggs)": 1, "Egg bhurji (2 eggs)": 2, "Egg curry (2 eggs)": 4,
+  "Chicken curry": 3, "Butter chicken": 7, "Kadai chicken": 4, "Tandoori chicken": 2, "Chicken tikka": 2, "Chicken breast (grilled)": 0,
+  "Mutton curry / Rogan josh": 3, "Keema": 3, "Seekh kebab": 1, "Fish curry": 3, "Fish fry / Amritsari fish": 1,
+  "Milk (toned)": 12, "Milk (full cream)": 12, "Milk (double toned)": 12, "Curd / Dahi": 6.5, "Greek yogurt (plain)": 4, "Boondi raita": 6,
+  "Cucumber / veg raita": 6, "Lassi (sweet)": 30, "Chaas / Salted lassi": 5, "Ghee": 0, "Butter": 0, "Cheese slice": 0.5, "Whey protein": 2,
+  "Samosa": 2, "Kachori": 1.5, "Pakora (mixed veg)": 2, "Paneer pakora": 2, "Bread pakora": 2.5, "Aloo tikki": 1, "Chole bhature": 8, "Chole kulche": 8,
+  "Pav bhaji": 9, "Vada pav": 4, "Golgappe / Pani puri": 6, "Bhel puri": 8, "Papdi chaat": 12, "Dahi bhalla": 14, "Momos (veg, steamed)": 3,
+  "Momos (chicken, steamed)": 2, "Dhokla": 5, "Idli": 0.5, "Dosa (plain)": 0.5, "Masala dosa": 2, "Uttapam": 2, "Besan chilla": 1.5, "Moong dal chilla": 1,
+  "Veg sandwich (grilled)": 4, "Paneer sandwich": 4, "Paneer kathi roll": 5, "Chicken kathi roll": 4, "Papad (roasted)": 0.2, "Papad (fried)": 0.2,
+  "Namkeen / Bhujia": 1, "Roasted chana": 3, "Makhana (roasted)": 0.2, "Peanuts": 1.3, "Almonds": 0.5, "Cashews": 0.9, "Walnuts": 0.3, "Peanut butter": 2,
+  "Biscuits (Marie)": 5, "Biscuits (glucose)": 6.5, "Rusk": 3, "French fries": 0.3, "Pizza (veg)": 3.5, "Burger (veg / aloo tikki)": 7, "Pasta (red / white sauce)": 7,
+  "Gulab jamun": 18, "Rasgulla": 20, "Rasmalai": 15, "Jalebi": 25, "Kheer": 22, "Gajar ka halwa": 25, "Sooji halwa": 22, "Besan ladoo": 12,
+  "Motichoor ladoo": 18, "Kaju katli": 5, "Barfi (milk)": 12, "Ice cream": 15, "Chocolate (milk)": 10,
+  "Chai (milk + sugar)": 10.5, "Chai (milk, no sugar)": 3.5, "Coffee (milk + sugar)": 11.5, "Black coffee / Green tea": 0, "Nimbu pani (sweet)": 17,
+  "Coconut water": 6.5, "Fruit juice (fresh)": 22, "Soft drink": 35, "Beer": 0, "Whisky / Rum / Vodka": 0, "Wine": 1.5,
+  "Banana": 15, "Apple": 19, "Mango": 28, "Orange / Kinnow": 11, "Papaya": 12, "Guava": 9, "Grapes": 16, "Watermelon": 12, "Pomegranate": 12, "Dates": 10.5,
+  "Salad (cucumber, tomato, onion)": 5, "Cooking oil": 0, "Sugar": 5, "Honey": 5.7, "Jaggery": 9, "Achar (pickle)": 0.3, "Green chutney": 0.5,
+};
+
 const Foods = (() => {
   const builtin = FOOD_ROWS.map(r => ({
-    name: r[0], unit: r[1], grams: r[2], kcal: r[3], protein: r[4], carbs: r[5], fat: r[6], fiber: r[7],
+    name: r[0], unit: r[1], grams: r[2], kcal: r[3], protein: r[4], carbs: r[5], fat: r[6], fiber: r[7], sugar: SUGAR[r[0]] ?? 0,
     search: (r[0] + " " + r[8]).toLowerCase(), source: "built-in",
   }));
 
@@ -270,11 +305,20 @@ const Foods = (() => {
       return {
         name: p.product_name + (brand && !p.product_name.toLowerCase().includes(brand.toLowerCase()) ? " (" + brand + ")" : ""),
         unit: "100 g", grams: 100, kcal: +kcal || 0, protein: +n.proteins_100g || 0,
-        carbs: +n.carbohydrates_100g || 0, fat: +n.fat_100g || 0, fiber: +n.fiber_100g || 0,
+        carbs: +n.carbohydrates_100g || 0, fat: +n.fat_100g || 0, fiber: +n.fiber_100g || 0, sugar: +n.sugars_100g || 0,
         source: "Open Food Facts",
       };
     }).filter(Boolean);
   }
 
-  return { search, searchOnline };
+  // Sugar for a food-log entry. Entries logged before sugar was tracked are worked out from the food list by name.
+  function sugarOf(r) {
+    const has = v => v !== undefined && v !== null && v !== "" && isFinite(+v);
+    if (has(r.sugar)) return +r.sugar;
+    const f = builtin.find(b => b.name === r.name) || custom().find(c => c.name === r.name && has(c.sugar));
+    if (!f || !has(r.qty)) return 0;
+    return (r.unit === "g" ? r.qty / f.grams : r.qty) * (+f.sugar || 0);
+  }
+
+  return { search, searchOnline, sugarOf };
 })();

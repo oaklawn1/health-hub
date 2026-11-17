@@ -57,11 +57,12 @@ function balanceCard(date) {
     if (b.est) note += " Burn is an estimate from your profile (no Garmin data for this day).";
   } else note = "Connect Garmin, or add weight, height and age in Settings, to see calories burned.";
   const pt = D.proteinTarget();
-  const macro = (k, lbl, tgt) => `<div><span>${lbl}</span><b>${i ? U.r(i[k]) : 0}${tgt ? `<small class="muted" style="font-weight:500;font-size:12px"> / ${tgt}</small>` : ""} g</b>${tgt ? `<div class="bar"><i style="width:${Math.min(100, (i ? i[k] : 0) / tgt * 100)}%"></i></div>` : ""}</div>`;
+  const macro = (k, lbl, tgt, limit) => { const v = i ? i[k] : 0, over = limit && v > tgt; return `<div><span>${lbl}</span><b class="${over ? "warn-t" : ""}">${U.r(v)}${tgt ? `<small class="muted" style="font-weight:500;font-size:11px">/${tgt}</small>` : `<small class="muted" style="font-weight:500;font-size:12px"> g</small>`}</b>${tgt ? `<div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, v / tgt * 100)}%"></i></div>` : ""}</div>`; };
   return `<div class="card hero"><h2>Calorie balance ${b && !b.est && isToday ? "<small>so far today</small>" : ""}</h2>${head}
     <div class="eq"><div><b>${U.r(eaten)}</b><span>eaten</span></div><i>−</i><div><b>${burned != null ? U.r(burned) : "–"}</b><span>burned${b && U.num(b.active) ? ` (${U.r(b.active)} active)` : ""}</span></div></div>
     <p class="muted small" style="margin-top:10px">${note}</p>
-    <div class="macros">${macro("protein", "Protein", pt)}${macro("carbs", "Carbs")}${macro("fat", "Fat")}${macro("fiber", "Fibre", 28)}</div></div>`;
+    <div class="macros" title="grams eaten / goal (sugar: limit)">${macro("protein", "Protein", pt)}${macro("carbs", "Carbs")}${macro("fat", "Fat")}${macro("fiber", "Fibre", 28)}${macro("sugar", "Sugar", D.sugarLimit(), true)}</div>
+    ${pt ? "" : `<p class="muted small" style="margin-top:8px">Protein goal: log your weight, or set a fixed goal in Settings.</p>`}</div>`;
 }
 
 function tilesHtml(date) {
@@ -121,14 +122,19 @@ function ago(iso) {
   const rel = m < 2 ? "just now" : m < 60 ? Math.round(m) + " min ago" : m < 48 * 60 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   return rel + " · " + new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
+function hevyLast() {
+  const w = Store.all("hevy_workout").slice(-1)[0];
+  return w ? (w.start || w.date + "T12:00:00") : null;
+}
 function sourcesHtml() {
-  const g = Store.get("meta", "sync"), h = Store.get("meta", "hevy_import");
-  const lastG = Store.all("garmin_daily").slice(-1)[0], lastW = Store.all("hevy_workout").slice(-1)[0];
+  const g = Store.get("meta", "sync");
+  const lastG = Store.all("garmin_daily").slice(-1)[0], lastH = hevyLast();
   const gFail = g && /^failed/.test(g.garmin || "");
   return `<div class="card"><h2>Data sources</h2><div class="sources">
     <div><span><b>Garmin</b> · ${gFail ? `<span class="warn-t">last sync failed</span>` : "synced " + ago(g && g.at)}</span><span>${lastG ? "data to " + U.short(lastG.date) : ""}</span></div>
-    <div><span><b>Hevy</b> · ${h ? "imported " + ago(h.at) : lastW ? "imported (date not recorded)" : "not imported yet"}</span><span>${lastW ? "last workout " + U.short(lastW.date) : ""}</span></div>
+    <div><span><b>Hevy</b> · ${lastH ? "last workout " + ago(lastH) : "not imported yet"}</span><span>${Store.get("meta", "hevy_import") ? "imported " + U.short(Store.get("meta", "hevy_import").at.slice(0, 10)) : ""}</span></div>
     <p class="small muted">Garmin syncs automatically at 6 am, 12 pm, 6 pm and 11 pm. Hevy needs a fresh export → Settings → Import Hevy CSV.</p>
+    <button class="btn sm ghost sync-now" data-act="garmin-sync">${S.syncing ? "Syncing Garmin…" : "Sync Garmin now"}</button>
   </div></div>`;
 }
 
@@ -333,8 +339,8 @@ function foodDetailSheet(f) {
 function foodCalc() {
   const f = foodCtx.food, qty = parseFloat($("#fd-qty").value) || 0, unit = $("#fd-unit").value;
   const k = unit === "grams" ? qty / f.grams : qty;
-  const v = { kcal: Math.round(f.kcal * k), protein: +(f.protein * k).toFixed(1), carbs: +(f.carbs * k).toFixed(1), fat: +(f.fat * k).toFixed(1), fiber: +(f.fiber * k).toFixed(1) };
-  $("#fd-n").innerHTML = [["kcal", "kcal"], ["protein", "protein"], ["carbs", "carbs"], ["fat", "fat"], ["fiber", "fibre"]].map(([key, l]) => `<div><b>${v[key]}${key === "kcal" ? "" : "g"}</b><span>${l}</span></div>`).join("");
+  const v = { kcal: Math.round(f.kcal * k), protein: +(f.protein * k).toFixed(1), carbs: +(f.carbs * k).toFixed(1), fat: +(f.fat * k).toFixed(1), fiber: +(f.fiber * k).toFixed(1), sugar: +((+f.sugar || 0) * k).toFixed(1) };
+  $("#fd-n").innerHTML = [["kcal", "kcal"], ["protein", "protein"], ["carbs", "carbs"], ["fat", "fat"], ["fiber", "fibre"], ["sugar", "sugar"]].map(([key, l]) => `<div><b>${v[key]}${key === "kcal" ? "" : "g"}</b><span>${l}</span></div>`).join("");
   return Object.assign({ qty, unit: unit === "grams" ? "g" : f.unit }, v);
 }
 function foodCustomSheet() {
@@ -342,7 +348,7 @@ function foodCustomSheet() {
     <label class="f">Name<input name="name" required placeholder="e.g. Mom's besan ladoo"></label>
     <div class="fgrid"><label class="f">Serving name<input name="unit" required placeholder="piece, katori, 100 g…"></label><label class="f">Calories per serving<input type="number" name="kcal" step="any" inputmode="decimal" required></label></div>
     <div class="fgrid"><label class="f">Protein (g)<input type="number" name="protein" step="any" inputmode="decimal"></label><label class="f">Carbs (g)<input type="number" name="carbs" step="any" inputmode="decimal"></label>
-    <label class="f">Fat (g)<input type="number" name="fat" step="any" inputmode="decimal"></label><label class="f">Fibre (g)<input type="number" name="fiber" step="any" inputmode="decimal"></label></div>
+    <label class="f">Fat (g)<input type="number" name="fat" step="any" inputmode="decimal"></label><label class="f">Fibre (g)<input type="number" name="fiber" step="any" inputmode="decimal"></label><label class="f">Sugar (g)<input type="number" name="sugar" step="any" inputmode="decimal"></label></div>
     <button class="btn">Save food</button></form>`);
 }
 
@@ -372,11 +378,15 @@ function settingsSheet() {
     <form class="grid" data-form="profile"><b>Your profile & goal</b>
       <div class="fgrid3"><label class="f">Sex${sel("sex", [["male", "Male"], ["female", "Female"]], p.sex)}</label><label class="f">Age<input type="number" name="age" value="${p.age ?? ""}" inputmode="numeric"></label><label class="f">Height (cm)<input type="number" name="height_cm" value="${p.height_cm ?? ""}" step="0.5" inputmode="decimal"></label></div>
       <div class="fgrid"><label class="f">Goal${sel("goal", [["lose", "Lose fat"], ["maintain", "Maintain"], ["gain", "Gain muscle"]], p.goal)}</label><label class="f">Daily calorie target (− deficit / + surplus)<input type="number" name="balance_target" value="${p.balance_target ?? ""}" step="50" inputmode="numeric"></label>
-      <label class="f">Protein target (g per kg)<input type="number" name="protein_per_kg" value="${p.protein_per_kg ?? 1.6}" step="0.1" inputmode="decimal"></label><label class="f">Step goal (blank = Garmin's)<input type="number" name="step_goal" value="${p.step_goal ?? ""}" step="500" inputmode="numeric"></label></div>
+      <label class="f">Protein goal${sel("protein_mode", [["auto", "Automatic (from my weight)"], ["manual", "Fixed number I choose"]], p.protein_mode || "auto")}</label>
+      <label class="f">Automatic: grams per kg<input type="number" name="protein_per_kg" value="${p.protein_per_kg ?? 1.6}" step="0.1" inputmode="decimal"></label>
+      <label class="f">Fixed: grams per day<input type="number" name="protein_g" value="${p.protein_g ?? ""}" step="5" inputmode="numeric" placeholder="e.g. 120"></label>
+      <label class="f">Daily sugar limit (g)<input type="number" name="sugar_limit" value="${p.sugar_limit ?? 50}" step="5" inputmode="numeric"></label><label class="f">Step goal (blank = Garmin's)<input type="number" name="step_goal" value="${p.step_goal ?? ""}" step="500" inputmode="numeric"></label></div>
       <button class="btn">Save profile</button></form>
     <div class="card"><b>Connections</b>
       <p class="small muted" style="margin-top:4px">Storage: ${S.cloud ? "your Supabase cloud database (available on all your devices)" : "this browser only. Follow SETUP.md to move to the free cloud database so your phone and laptop share data"}.</p>
-      <p class="small muted" style="margin-top:4px">Garmin: synced ${ago(meta && meta.at)}${meta && meta.garmin && meta.garmin !== "ok" ? " (" + esc(meta.garmin) + ")" : ""}. Hevy: ${Store.get("meta", "hevy_import") ? "imported " + ago(Store.get("meta", "hevy_import").at) : "imported, date not recorded"}.</p>
+      <p class="small muted" style="margin-top:4px">Garmin: synced ${ago(meta && meta.at)}${meta && meta.garmin && meta.garmin !== "ok" ? " (" + esc(meta.garmin) + ")" : ""}. Hevy: ${hevyLast() ? "last workout " + ago(hevyLast()) : "not imported yet"}.</p>
+      <div class="gap" style="margin-top:8px"><button class="btn sm ghost" data-act="garmin-sync">${S.syncing ? "Syncing Garmin…" : "Sync Garmin now"}</button></div>
       <p class="small muted" style="margin-top:4px">No Hevy Pro? Export a CSV from the Hevy app (Profile → Settings → Export & Import Data) and import it here.</p>
       <div class="gap" style="margin-top:8px"><button class="btn sm ghost" data-act="hevy-csv">Import Hevy CSV</button><button class="btn sm ghost" data-act="reload">Refresh data</button></div><input type="file" id="hevy-file" accept=".csv,text/csv" hidden></div>
     <div class="card"><b>Data</b><div class="gap" style="margin-top:8px">
@@ -437,6 +447,19 @@ const actions = {
   range: el => { S.range = +el.dataset.v; render(); },
   "body-tab": el => { S.bodyTab = el.dataset.v; render(); },
   settings: settingsSheet,
+  "garmin-sync": () => safe(async () => {
+    if (S.syncing) return toast("Already syncing - takes about a minute");
+    let r; try { r = await Store.rpc("request_garmin_sync"); } catch (e) { r = "error"; }
+    if (r !== "ok") { const url = "https://github.com/oaklawn1/health-hub/actions/workflows/sync.yml"; if (!window.open(url, "_blank")) location.href = url; return toast("Opened GitHub - tap “Run workflow” there"); }
+    const before = (Store.get("meta", "sync") || {}).at;
+    S.syncing = true; render(); toast("Garmin sync started - takes about a minute");
+    for (let n = 0; n < 16; n++) {   // check every 15 s for up to 4 minutes
+      await new Promise(res => setTimeout(res, 15000));
+      await Store.load();
+      if ((Store.get("meta", "sync") || {}).at !== before) { S.syncing = false; closeSheet(); render(); return toast("Garmin synced"); }
+    }
+    S.syncing = false; render(); toast("Sync is taking longer than usual - check back in a few minutes");
+  }),
   reload: () => safe(async () => { await Store.load(); closeSheet(); render(); toast("Data refreshed"); }),
   "demo-load": () => safe(async () => { await Demo.load(); closeSheet(); render(); toast("Sample data loaded"); }),
   "demo-clear": () => safe(async () => { await Demo.clear(); closeSheet(); render(); toast("Sample data removed"); }),
@@ -479,11 +502,11 @@ const forms = {
   async medical(d) { d.unit = MEDICAL[d.kind]; if (d.kind === "Injury") d.status = "active"; await Store.put("medical", d); toast("Saved"); },
   async profile(d) { await Store.put("profile", Object.assign({}, d, { id: "me" })); closeSheet(); toast("Profile saved"); },
   async "meal-set"(d) {
-    const items = Store.on("food", S.date).filter(r => r.meal === d.meal).map(r => ({ name: r.name, qty: r.qty, unit: r.unit, kcal: r.kcal, protein: r.protein, carbs: r.carbs, fat: r.fat, fiber: r.fiber }));
+    const items = Store.on("food", S.date).filter(r => r.meal === d.meal).map(r => ({ name: r.name, qty: r.qty, unit: r.unit, kcal: r.kcal, protein: r.protein, carbs: r.carbs, fat: r.fat, fiber: r.fiber, sugar: +Foods.sugarOf(r).toFixed(1) }));
     if (!items.length) throw new Error("This meal has no items to save");
     await Store.put("meal_set", { name: d.name, meal: d.meal, items }); closeSheet(); toast("Saved - find it under “Saved meals”");
   },
-  async "custom-food"(d) { const f = await Store.put("custom_food", Object.assign({ protein: 0, carbs: 0, fat: 0, fiber: 0 }, d)); foodDetailSheet(Object.assign({ source: "my food" }, f)); return "keep"; },
+  async "custom-food"(d) { const f = await Store.put("custom_food", Object.assign({ protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0 }, d)); foodDetailSheet(Object.assign({ source: "my food" }, f)); return "keep"; },
 };
 
 document.addEventListener("click", e => {
