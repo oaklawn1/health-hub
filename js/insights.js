@@ -74,6 +74,63 @@ const D = {
     }));
     return out;
   },
+  // Alcohol logged in the food log on a date (kcal, 0 if none). Matches drink names.
+  alcohol(date) {
+    const rows = Store.on("food", date).filter(r => /whisk|\brum\b|old monk|beer|wine|vodka|\bgin\b|tequila|brandy|alcohol|peg/i.test(r.name || ""));
+    return rows.length ? U.sum(rows.map(r => r.kcal)) : 0;
+  },
+  // Best estimated one-rep max per exercise per workout: kg × (1 + reps/30), working sets with 1–15 reps.
+  strength(from, to) {
+    const out = {};
+    D.workouts(from, to).forEach(w => (w.exercises || []).forEach(ex => {
+      let best = null;
+      (ex.sets || []).forEach(s => {
+        if (s.type === "warmup" || !(s.kg > 0) || !(s.reps >= 1 && s.reps <= 15)) return;
+        const e = s.kg * (1 + s.reps / 30);
+        if (!best || e > best.e1rm) best = { e1rm: e, kg: s.kg, reps: s.reps };
+      });
+      if (best) (out[ex.name] = out[ex.name] || []).push(Object.assign({ date: w.date }, best));
+    }));
+    return out;
+  },
+  // Compare best lift in the last 28 days with the best in the 8 weeks before that.
+  strengthProgress() {
+    const today = U.today(), recentFrom = U.addDays(today, -27), oldFrom = U.addDays(today, -83);
+    const all = D.strength(oldFrom, today), res = [];
+    Object.keys(all).forEach(name => {
+      const recent = all[name].filter(x => x.date >= recentFrom), old = all[name].filter(x => x.date < recentFrom);
+      if (!recent.length || !old.length) return;
+      const r = recent.reduce((a, b) => b.e1rm > a.e1rm ? b : a), o = old.reduce((a, b) => b.e1rm > a.e1rm ? b : a);
+      res.push({ name, recent: r, old: o, change: (r.e1rm - o.e1rm) / o.e1rm * 100, sessions: all[name].length });
+    });
+    return res.sort((a, b) => b.sessions - a.sessions);
+  },
+  // Averages for a 7-day window ending on `end` (inclusive).
+  week(end) {
+    const days = U.days(7, end), g = k => U.avg(days.map(d => (D.garmin(d) || {})[k]).filter(U.num));
+    const intakes = days.map(D.intake).filter(Boolean);
+    const sets = U.sum(Object.values(D.muscleSets(days[0], end)));
+    return {
+      eaten: U.avg(intakes.map(i => i.kcal)), burned: U.avg(days.map(d => (D.burn(d) || {}).kcal).filter(U.num)),
+      balance: U.avg(days.map(D.balance).filter(U.num)), protein: U.avg(intakes.map(i => i.protein)), logged: intakes.length,
+      steps: g("steps"), sleep: g("sleep_seconds"), hrv: g("hrv"), rhr: g("resting_hr"), bb: g("body_battery_high"), stress: g("stress_avg"),
+      sessions: D.workouts(days[0], end).length, sets, drinks: days.filter(d => D.alcohol(d) > 0).length,
+    };
+  },
+  // Garmin strength activity recorded for the same session as a Hevy workout (same day, starts within 90 min).
+  isStrength: a => /strength|weight|gym|hiit|indoor_cardio/i.test((a.type || "") + " " + (a.name || "")),
+  garminFor(w) {
+    if (!w || !w.start) return null;
+    const ws = new Date(w.start).getTime();
+    let best = null, gap = 90 * 60000;
+    Store.all("garmin_activity").forEach(a => {
+      if (!a.start || !D.isStrength(a) || Math.abs(new Date(a.start).getTime() - ws) > 24 * 3600000) return;
+      const g = Math.abs(new Date(a.start).getTime() - ws);
+      if (g <= gap) { gap = g; best = a; }
+    });
+    return best;
+  },
+  linkedGarminIds(from, to) { return new Set(D.workouts(from, to).map(D.garminFor).filter(Boolean).map(a => a.id)); },
   series(dates, fn) { return dates.map(d => { const v = fn(d); return U.num(v) ? v : null; }); },
 };
 
@@ -213,6 +270,37 @@ const Insights = (() => {
     if (hard.length >= 5) {
       const nextHrv = hard.map(d => g("hrv")(U.addDays(d, 1))).filter(U.num), base = a28("hrv");
       if (nextHrv.length >= 5 && base && U.avg(nextHrv) < base * 0.93) add("info", "Patterns", "Strength days dent next-morning HRV", `HRV averages ${U.r(U.avg(nextHrv))} ms the night after lifting vs ${U.r(base)} ms normally. Avoid stacking hard days back to back.`);
+    }
+
+    // ---- Alcohol vs next night's recovery (Garmin's data for day d+1 = the night after drinking on d) ----
+    const logged = U.days(60, yday).filter(d => Store.on("food", d).length);
+    const drinkDays = logged.filter(d => D.alcohol(d) > 0), dryDays = logged.filter(d => !D.alcohol(d));
+    if (drinkDays.length >= 3) {
+      const next = (list, k) => U.avg(list.map(d => (D.garmin(U.addDays(d, 1)) || {})[k]).filter(U.num));
+      const kcal = U.avg(drinkDays.map(D.alcohol));
+      const share = `Alcohol logged on ${drinkDays.length} of ${logged.length} food-logged days (about ${U.r(kcal)} kcal each time).`;
+      const hD = next(drinkDays, "hrv"), sD = next(drinkDays, "sleep_seconds"), bD = next(drinkDays, "body_battery_high");
+      if (dryDays.length >= 3) {
+        const hN = next(dryDays, "hrv"), sN = next(dryDays, "sleep_seconds"), bN = next(dryDays, "body_battery_high");
+        const worse = (hD && hN && hD < hN * 0.95) || (bD && bN && bD < bN - 5);
+        add(worse ? "warn" : "info", "Patterns", worse ? "Drinking nights cost you recovery" : "Alcohol vs recovery",
+          `${share} After drinking: HRV ${U.r(hD)} ms, Body Battery ${U.r(bD)}, sleep ${U.hm(sD)}. After alcohol-free days: HRV ${U.r(hN)} ms, Body Battery ${U.r(bN)}, sleep ${U.hm(sN)}.`);
+      } else {
+        const base = (k, n) => U.avg(U.days(n, yday).map(d => (D.garmin(d) || {})[k]).filter(U.num));
+        add(drinkDays.length / logged.length >= 0.7 ? "warn" : "info", "Patterns", `Alcohol on ${drinkDays.length} of ${logged.length} logged days`,
+          `${share} The nights after: HRV ${U.r(hD)} ms and Body Battery ${U.r(bD)}, vs your 60-day averages of ${U.r(base("hrv", 60))} ms and ${U.r(base("body_battery_high", 60))}. Log a few alcohol-free days and the app will show the direct difference.`);
+      }
+    }
+
+    // ---- Strength progress (Hevy) ----
+    const prog = D.strengthProgress().slice(0, 12);
+    if (prog.length >= 3) {
+      const up = prog.filter(p => p.change >= 2.5), down = prog.filter(p => p.change <= -5);
+      const lvl = up.length >= down.length * 2 ? "good" : down.length > up.length ? "warn" : "info";
+      add(lvl, "Training", `Stronger on ${up.length} of ${prog.length} main lifts`,
+        (up.length ? `Up: ${up.slice(0, 4).map(p => `${p.name} +${U.r(p.change)}%`).join(", ")}. ` : "") +
+        (down.length ? `Down: ${down.slice(0, 3).map(p => `${p.name} ${U.r(p.change)}%`).join(", ")}${p.goal === "lose" ? " - some loss is normal in a deficit; keep protein high." : "."}` : "No meaningful drops.") +
+        " Compares your best set in the last 4 weeks with the 8 weeks before.");
     }
 
     // ---- Body ----

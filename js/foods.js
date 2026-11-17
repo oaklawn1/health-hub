@@ -243,17 +243,32 @@ const Foods = (() => {
 
   // Free packaged-food lookup (Open Food Facts - open data, no key needed).
   async function searchOnline(q) {
-    const url = "https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=20" +
-      "&fields=product_name,brands,nutriments,serving_quantity,serving_size&search_terms=" + encodeURIComponent(q);
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("Open Food Facts is busy - try again in a minute");
-    const j = await r.json();
-    return (j.products || []).map(p => {
+    q = q.trim();
+    let products;
+    if (/^\d{8,14}$/.test(q)) {
+      // A barcode: Open Food Facts allows this lookup straight from the browser.
+      const r = await fetch("https://world.openfoodfacts.org/api/v2/product/" + q + ".json?fields=product_name,brands,nutriments");
+      const j = r.ok ? await r.json() : {};
+      products = j.product ? [j.product] : [];
+    } else {
+      // Text search goes through our own database, because Open Food Facts blocks it from websites.
+      let j;
+      try { j = await Store.rpc("food_search", { q }); }
+      catch (e) { try { await new Promise(r => setTimeout(r, 1200)); j = await Store.rpc("food_search", { q }); } catch (e2) { j = null; } }
+      if (!j) { throw new Error("Online food search is unavailable right now - try again in a minute, or create the food yourself."); }
+      products = (j && j.hits) || [];
+    }
+    // Rank by how many of the typed words appear in the product name/brand; drop ones that match none.
+    const words = q.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 1);
+    const score = p => { const t = ((p.product_name || "") + " " + [].concat(p.brands || []).join(" ")).toLowerCase(); return words.filter(w => t.includes(w)).length; };
+    if (words.length) products = products.map(p => [p, score(p)]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+    return products.map(p => {
       const n = p.nutriments || {};
       const kcal = n["energy-kcal_100g"];
       if (!p.product_name || kcal == null) return null;
+      const brand = Array.isArray(p.brands) ? p.brands[0] : p.brands ? String(p.brands).split(",")[0] : "";
       return {
-        name: p.product_name + (p.brands ? " (" + p.brands.split(",")[0] + ")" : ""),
+        name: p.product_name + (brand && !p.product_name.toLowerCase().includes(brand.toLowerCase()) ? " (" + brand + ")" : ""),
         unit: "100 g", grams: 100, kcal: +kcal || 0, protein: +n.proteins_100g || 0,
         carbs: +n.carbohydrates_100g || 0, fat: +n.fat_100g || 0, fiber: +n.fiber_100g || 0,
         source: "Open Food Facts",

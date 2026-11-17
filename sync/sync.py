@@ -261,12 +261,58 @@ def hevy_workouts(key, since, tz):
         page += 1
 
 
+# ----------------------------------------------------------------- history
+def backfill(args, today):
+    """Walk backwards from 31 days ago, a month at a time, saving each month as it goes.
+    Stops after 90 days in a row with no Garmin data (= before you owned the watch).
+    Safe to stop and re-run: days already in the database are skipped."""
+    url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_KEY")
+    cloud = Cloud(url, key) if url and key else None
+    tokendir = pathlib.Path(os.environ.get("GARMINTOKENS", "~/.garminconnect")).expanduser()
+    have = set()
+    if cloud:
+        r = requests.get(f"{cloud.base}/records?collection=eq.garmin_daily&select=id", headers={**cloud.h, "Range": "0-9999"}, timeout=60)
+        r.raise_for_status()
+        have = {x["id"] for x in r.json()}
+    client = garmin_client(cloud, tokendir, False)
+    print(f"Garmin: signed in. Going back in time from {today - dt.timedelta(days=31)}; {len(have)} days already saved.")
+    end, empty, total = today - dt.timedelta(days=31), 0, 0
+    while empty < 90 and end.year >= 2008:
+        start = end - dt.timedelta(days=29)
+        daily = []
+        for i in range(29, -1, -1):
+            d = (end - dt.timedelta(days=i)).isoformat()
+            if d in have:
+                empty = 0
+                continue
+            row = garmin_day(client, d)
+            # Garmin can return calorie estimates even for days with no watch, so "real data" = steps or sleep.
+            if row and (row.get("steps") or row.get("sleep_seconds")):
+                daily.append(row)
+                empty = 0
+            else:
+                empty += 1
+        acts = garmin_activities(client, start.isoformat(), end.isoformat())
+        if cloud:
+            cloud.put_records("garmin_daily", daily)
+            cloud.put_records("garmin_activity", acts)
+            save_garmin_tokens(cloud, tokendir)
+        else:
+            write_local({"garmin_daily": daily, "garmin_activity": acts})
+        total += len(daily)
+        print(f"   {start} to {end}: {len(daily)} days, {len(acts)} activities saved (total so far {total})", flush=True)
+        end = start - dt.timedelta(days=1)
+    print(f"Done. Reached 90 days with no data before {end + dt.timedelta(days=91)}. Saved {total} new days.")
+    return 0
+
+
 # ----------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description="Sync Garmin + Hevy into Health Hub")
     ap.add_argument("--days", type=int, default=3, help="how many days back to fetch (default 3)")
     ap.add_argument("--login", action="store_true", help="sign in to Garmin interactively (first-time setup)")
     ap.add_argument("--hevy", action="store_true", help="connect Hevy: asks for your API key, then syncs Hevy only")
+    ap.add_argument("--history", action="store_true", help="download Garmin history, going back until there is no more data")
     ap.add_argument("--setup-cloud", metavar="URL", help="save the Supabase project URL and ask for its secret key")
     args = ap.parse_args()
     load_env()
@@ -287,7 +333,9 @@ def main():
 
     tz = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Kolkata"))
     today = dt.datetime.now(tz).date()
-    days = [(today - dt.timedelta(days=i)).isoformat() for i in range(args.days - 1, -1, -1)]
+    if args.history:
+        sys.exit(backfill(args, today))
+    days =[(today - dt.timedelta(days=i)).isoformat() for i in range(args.days - 1, -1, -1)]
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_KEY")
     cloud = Cloud(url, key) if url and key else None
     print("Saving to:", "Supabase cloud database" if cloud else f"this Mac only ({LOCAL_OUT})")

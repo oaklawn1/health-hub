@@ -124,5 +124,12 @@ const Store = (() => {
     return n;
   }
 
-  return { init, load, signIn, signOut, all, get, on, put, putMany, remove, removeWhere, exportAll, importDevice, hasDeviceData, uid, isCloud: cloud };
+  async function rpc(name, args) {
+    if (!sb) throw new Error("not connected to the cloud");
+    const { data, error } = await sb.rpc(name, args);
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  return { rpc, init, load, signIn, signOut, all, get, on, put, putMany, remove, removeWhere, exportAll, importDevice, hasDeviceData, uid, isCloud: cloud };
 })();

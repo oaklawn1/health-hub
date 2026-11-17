@@ -83,6 +83,55 @@ function tilesHtml(date) {
   </div>`;
 }
 
+// This week (last 7 complete days) vs the 7 days before. better: +1 if higher is better, -1 if lower is better, 0 neutral.
+function weekCard() {
+  const end = U.addDays(U.today(), -1), a = D.week(end), b = D.week(U.addDays(end, -7));
+  const rows = [
+    ["Calories eaten / day", "eaten", v => U.r(v), 0], ["Calories burned / day", "burned", v => U.r(v), 0],
+    ["Balance / day", "balance", v => (v > 0 ? "+" : "") + U.r(v), D.profile().goal === "gain" ? 1 : -1], ["Protein / day", "protein", v => U.r(v) + " g", 1],
+    ["Steps / day", "steps", v => U.r(v), 1], ["Sleep", "sleep", U.hm, 1], ["HRV", "hrv", v => U.r(v) + " ms", 1], ["Resting HR", "rhr", v => U.r(v), -1],
+    ["Body Battery peak", "bb", v => U.r(v), 1], ["Stress", "stress", v => U.r(v), -1], ["Strength sessions", "sessions", v => U.r(v), 1],
+    ["Working sets", "sets", v => U.r(v), 1], ["Days with alcohol", "drinks", v => U.r(v), -1],
+  ].filter(([, k]) => U.num(a[k]) || U.num(b[k]));
+  const cell = (r) => {
+    const [label, k, f, better] = r, x = a[k], y = b[k];
+    let arrow = "";
+    if (U.num(x) && U.num(y) && x !== y) {
+      const good = better === 0 ? null : (x > y) === (better > 0);
+      arrow = `<span class="${good == null ? "muted" : good ? "good-t" : "warn-t"}">${x > y ? "▲" : "▼"}</span>`;
+    }
+    return `<tr><td>${label}</td><td>${U.num(x) ? f(x) : "–"} ${arrow}</td><td class="muted">${U.num(y) ? f(y) : "–"}</td></tr>`;
+  };
+  return `<div class="card"><h2>This week vs last week <small>food logged ${a.logged}/7 · ${b.logged}/7 days</small></h2>
+    <table class="wk-table"><thead><tr><th></th><th>Last 7 days</th><th>7 days before</th></tr></thead><tbody>${rows.map(cell).join("")}</tbody></table></div>`;
+}
+
+function strengthCard() {
+  const prog = D.strengthProgress();
+  if (!prog.length) return "";
+  return `<div class="card"><h2>Strength progress <small>best set, last 4 wks vs 8 wks before</small></h2><div class="list">
+    ${prog.slice(0, 10).map(p => `<div class="item"><div class="t"><b>${esc(p.name)}</b><span>${p.recent.kg} kg × ${p.recent.reps} (was ${p.old.kg} kg × ${p.old.reps})</span></div>
+      <div class="n ${p.change >= 2.5 ? "good-t" : p.change <= -5 ? "warn-t" : ""}">${p.change > 0 ? "+" : ""}${U.r(p.change)}%<span>est. 1-rep max ${U.r(p.recent.e1rm)} kg</span></div></div>`).join("")}
+    </div></div>`;
+}
+
+function ago(iso) {
+  if (!iso) return "never";
+  const m = (Date.now() - new Date(iso)) / 60000;
+  const rel = m < 2 ? "just now" : m < 60 ? Math.round(m) + " min ago" : m < 48 * 60 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
+  return rel + " · " + new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+function sourcesHtml() {
+  const g = Store.get("meta", "sync"), h = Store.get("meta", "hevy_import");
+  const lastG = Store.all("garmin_daily").slice(-1)[0], lastW = Store.all("hevy_workout").slice(-1)[0];
+  const gFail = g && /^failed/.test(g.garmin || "");
+  return `<div class="card"><h2>Data sources</h2><div class="sources">
+    <div><span><b>Garmin</b> · ${gFail ? `<span class="warn-t">last sync failed</span>` : "synced " + ago(g && g.at)}</span><span>${lastG ? "data to " + U.short(lastG.date) : ""}</span></div>
+    <div><span><b>Hevy</b> · ${h ? "imported " + ago(h.at) : lastW ? "imported (date not recorded)" : "not imported yet"}</span><span>${lastW ? "last workout " + U.short(lastW.date) : ""}</span></div>
+    <p class="small muted">Garmin syncs automatically at 6 am, 12 pm, 6 pm and 11 pm. Hevy needs a fresh export → Settings → Import Hevy CSV.</p>
+  </div></div>`;
+}
+
 function muscleHtml(from, to) {
   const m = D.muscleSets(from, to), max = Math.max(1, ...Object.values(m));
   return Muscles.groups.map(g => `<div class="mrow ${m[g] ? "" : "zero"}"><span>${g}</span><div class="bar"><i style="width:${m[g] / max * 100}%"></i></div><b>${U.r(m[g])}</b></div>`).join("");
@@ -103,7 +152,7 @@ const views = {
         <div class="card"><h2>Muscle groups · 7 days <small>sets</small></h2>${Store.all("hevy_workout").length ? muscleHtml(d7[0], date) : `<p class="muted">No strength workouts yet. Connect Hevy or import your Hevy CSV in Settings.</p>`}</div>
         <div class="card"><h2>Steps · 14 days</h2><div class="chart"><canvas id="c-steps"></canvas></div></div>
         <div class="card"><h2>Weight · 60 days</h2>${wts.length ? `<div class="chart"><canvas id="c-wt"></canvas></div>` : `<p class="muted">Log your weight in the Body tab.</p>`}</div>
-      </div>`;
+      </div>${sourcesHtml()}`;
     const eaten = d7.map(d => { const i = D.intake(d); return i ? Math.round(i.kcal) : null; }), burned = d7.map(d => { const b = D.burn(d); return b ? Math.round(b.kcal) : null; });
     mkChart("c-cal", "bar", d7.map(U.short), [{ label: "Eaten", data: eaten, backgroundColor: cssv("--c3") }, { label: "Burned", data: burned, backgroundColor: cssv("--c2") }], { zero: true });
     const net = U.sum(d7.map(d => D.balance(d)));
@@ -129,18 +178,21 @@ const views = {
 
   training() {
     const n = S.trRange, to = U.today(), from = U.addDays(to, -(n - 1));
-    const ws = D.workouts(from, to).reverse(), acts = Store.all("garmin_activity").filter(a => a.date >= from && a.date <= to).reverse();
+    const ws = D.workouts(from, to).reverse(), linked = D.linkedGarminIds(U.addDays(from, -1), U.addDays(to, 1));
+    const acts = Store.all("garmin_activity").filter(a => a.date >= from && a.date <= to && !linked.has(a.id)).reverse();
+    const strengthKcal = U.sum(ws.map(w => (D.garminFor(w) || {}).calories));
     const vol = w => U.sum((w.exercises || []).flatMap(e => (e.sets || []).map(s => (s.kg || 0) * (s.reps || 0))));
-    const wk = w => `<details class="wk"><summary><div class="t"><b>${esc(w.title || "Workout")}</b><span class="muted small">${U.nice(w.date)}${w.duration_min ? " · " + w.duration_min + " min" : ""} · ${(w.exercises || []).length} exercises</span></div><div class="n small muted">${U.r(vol(w))} kg<br>volume</div></summary>
+    const wk = w => `<details class="wk"><summary><div class="t"><b>${esc(w.title || "Workout")}</b><span class="muted small">${U.nice(w.date)}${w.duration_min ? " · " + w.duration_min + " min" : ""} · ${(w.exercises || []).length} exercises</span>${(() => { const g = D.garminFor(w); return g ? `<span class="linked">Garmin: ${U.r(g.calories)} kcal${g.avg_hr ? ` · avg ${U.r(g.avg_hr)} bpm` : ""}${g.max_hr ? ` · max ${U.r(g.max_hr)}` : ""}</span>` : `<span class="linked">Not recorded on Garmin</span>`; })()}</div><div class="n small muted">${U.r(vol(w))} kg<br>volume</div></summary>
       ${(w.exercises || []).map(e => `<div class="ex"><b>${esc(e.name)}</b> <span>· ${esc(Muscles.norm(e.muscle))}</span><br><span>${(e.sets || []).map(s => s.kg ? `${s.kg}×${s.reps ?? "?"}` : s.reps ? `${s.reps} reps` : s.dur ? Math.round(s.dur / 60) + " min" : "set").join("  ·  ")}</span></div>`).join("")}</details>`;
     const act = a => `<div class="item"><div class="t"><b>${esc(a.name || a.type)}</b><span>${U.nice(a.date)} · ${U.hm(a.duration_s)}${a.distance_m ? " · " + U.r(a.distance_m / 1000, 1) + " km" : ""}${a.avg_hr ? " · avg " + U.r(a.avg_hr) + " bpm" : ""}</span></div><div class="n">${U.r(a.calories)}<span>kcal</span></div></div>`;
     $("#view").innerHTML = `${seg("tr-range", [[7, "7 days"], [14, "14 days"], [30, "30 days"]], n)}
       <div class="grid cols2">
       <div class="card"><h2>Muscle groups trained <small>working sets</small></h2>${muscleHtml(from, to)}<p class="muted small" style="margin-top:8px">A set counts fully for the main muscle and half for helper muscles. Aim for roughly 10–20 sets per muscle each week.</p></div>
       <div class="card"><h2>Volume per session <small>kg lifted</small></h2><div class="chart"><canvas id="c-vol"></canvas></div></div></div>
-      <div class="card"><h2>Strength workouts (Hevy) <small>${ws.length} sessions</small></h2>${ws.map(wk).join("") || `<p class="muted">No Hevy workouts in this period.</p>`}
+      ${strengthCard()}
+      <div class="card"><h2>Strength workouts (Hevy) <small>${ws.length} sessions${strengthKcal ? " · " + U.r(strengthKcal) + " kcal on Garmin" : ""}</small></h2>${ws.map(wk).join("") || `<p class="muted">No Hevy workouts in this period.</p>`}
         <div class="gap" style="margin-top:10px"><button class="btn sm ghost" data-act="hevy-csv">Import Hevy CSV export</button></div><input type="file" id="hevy-file" accept=".csv,text/csv" hidden></div>
-      <div class="card"><h2>Garmin activities <small>${acts.length ? U.r(U.sum(acts.map(a => a.calories))) + " kcal" : ""}</small></h2><div class="list">${acts.map(act).join("") || `<p class="muted">No Garmin activities in this period.</p>`}</div></div>`;
+      <div class="card"><h2>Other Garmin activities <small>${acts.length ? U.r(U.sum(acts.map(a => a.calories))) + " kcal" : ""}</small></h2><div class="list">${acts.map(act).join("") || `<p class="muted">No Garmin activities in this period.</p>`}</div></div>`;
     const asc = ws.slice().reverse();
     mkChart("c-vol", "bar", asc.map(w => U.short(w.date)), [{ label: "Volume (kg)", data: asc.map(vol), backgroundColor: cssv("--c4") }], { zero: true });
   },
@@ -201,8 +253,9 @@ const views = {
     const counts = { warn: all.filter(i => i.level === "warn").length, good: all.filter(i => i.level === "good").length };
     const ch = (id, title) => `<div class="card"><h2>${title}</h2><div class="chart"><canvas id="${id}"></canvas></div></div>`;
     $("#view").innerHTML = `<div class="card"><h2>Summary</h2><p><b class="warn-t">${counts.warn}</b> thing${counts.warn === 1 ? "" : "s"} to work on · <b class="good-t">${counts.good}</b> going well</p></div>
+      ${weekCard()}
       ${Object.keys(groups).map(a => `<div class="card grouped"><h2>${esc(a)}</h2>${groups[a].map(insHtml).join("")}</div>`).join("")}
-      <h2 style="font-size:16px;margin-top:6px">Trends</h2>${seg("range", [[7, "7 days"], [30, "30 days"], [90, "90 days"]], n)}
+      <h2 style="font-size:16px;margin-top:6px">Trends</h2>${seg("range", [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 year"]], n)}
       <div class="grid cols2">${ch("t-bal", "Calorie balance (eaten − burned)")}${ch("t-sleep", "Sleep (hours)")}${ch("t-hrv", "HRV & resting heart rate")}${ch("t-bb", "Body Battery")}${ch("t-stress", "Stress & training readiness")}${ch("t-steps", "Steps")}</div>
       <p class="muted small center">These are automated observations from your own data, not medical advice. Discuss medical results and injuries with your doctor.</p>`;
     const bal = days.map(d => { const v = D.balance(d); return U.num(v) ? Math.round(v) : null; });
@@ -323,7 +376,7 @@ function settingsSheet() {
       <button class="btn">Save profile</button></form>
     <div class="card"><b>Connections</b>
       <p class="small muted" style="margin-top:4px">Storage: ${S.cloud ? "your Supabase cloud database (available on all your devices)" : "this browser only. Follow SETUP.md to move to the free cloud database so your phone and laptop share data"}.</p>
-      <p class="small muted" style="margin-top:4px">Garmin & Hevy: ${meta && meta.at ? `last synced ${new Date(meta.at).toLocaleString()} — Garmin ${meta.garmin || "–"}, Hevy ${meta.hevy || "–"}` : "not synced yet. Double-click “Connect Garmin.command” in the health-hub folder (see SETUP.md)"}.</p>
+      <p class="small muted" style="margin-top:4px">Garmin: synced ${ago(meta && meta.at)}${meta && meta.garmin && meta.garmin !== "ok" ? " (" + esc(meta.garmin) + ")" : ""}. Hevy: ${Store.get("meta", "hevy_import") ? "imported " + ago(Store.get("meta", "hevy_import").at) : "imported, date not recorded"}.</p>
       <p class="small muted" style="margin-top:4px">No Hevy Pro? Export a CSV from the Hevy app (Profile → Settings → Export & Import Data) and import it here.</p>
       <div class="gap" style="margin-top:8px"><button class="btn sm ghost" data-act="hevy-csv">Import Hevy CSV</button><button class="btn sm ghost" data-act="reload">Refresh data</button></div><input type="file" id="hevy-file" accept=".csv,text/csv" hidden></div>
     <div class="card"><b>Data</b><div class="gap" style="margin-top:8px">
@@ -372,6 +425,7 @@ async function importHevyCsv(file) {
   const have = new Set(Store.all("hevy_workout").filter(w => w.source !== "csv" && w.start).map(w => Math.floor(new Date(w.start) / 60000)));
   const fresh = list.filter(w => !have.has(Math.floor(new Date(w.start) / 60000)));
   await Store.putMany("hevy_workout", fresh);
+  await Store.put("meta", { id: "hevy_import", at: new Date().toISOString(), count: fresh.length });
   toast(`Imported ${fresh.length} workouts`); closeSheet(); render();
 }
 
