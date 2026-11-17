@@ -1,0 +1,6 @@
+# Never publish secrets or personal health data
+sync/.env
+sync/.venv/
+data/sync.json
+.DS_Store
+__pycache__/

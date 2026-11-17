@@ -1,0 +1,48 @@
+name: Sync Garmin and Hevy
+
+on:
+  schedule:
+    # 06:00, 12:00, 18:00 and 23:00 India time (GitHub uses UTC)
+    - cron: "30 0,6,12,17 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to fetch"
+        default: "3"
+
+permissions:
+  contents: write
+
+concurrency: sync
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: sync/requirements.txt
+      - run: pip install -q -r sync/requirements.txt
+      - name: Sync
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
+          TIMEZONE: Asia/Kolkata
+          DAYS: ${{ github.event.inputs.days || '3' }}
+        run: python sync/sync.py --days "$DAYS"
+      - name: Keep the schedule alive
+        # GitHub pauses scheduled jobs in repositories with no commits for 60 days.
+        if: always()
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt 2592000 ]; then
+            git config user.name "health-hub-sync"
+            git config user.email "health-hub-sync@users.noreply.github.com"
+            git commit --allow-empty -m "Keep scheduled sync alive"
+            git push
+          fi
