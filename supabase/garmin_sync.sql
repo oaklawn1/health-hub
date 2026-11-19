@@ -2,7 +2,9 @@
 -- The GitHub token lives in sync_state (key 'github_dispatch', value {"token": "..."}), which the app can never read.
 create extension if not exists http with schema extensions;
 
-create or replace function public.request_garmin_sync()
+-- days = how many days back to fetch (the app button uses 3, the 15-minute timer uses 2).
+drop function if exists public.request_garmin_sync();
+create or replace function public.request_garmin_sync(days int default 3)
 returns text
 language plpgsql
 security definer
@@ -20,10 +22,10 @@ begin
           extensions.http_header('Accept', 'application/vnd.github+json'),
           extensions.http_header('User-Agent', 'health-hub')],
     'application/json',
-    '{"ref":"main"}')::extensions.http_request);
+    json_build_object('ref', 'main', 'inputs', json_build_object('days', greatest(1, least(days, 30))::text))::text)::extensions.http_request);
   return case when res.status = 204 then 'ok' else 'error ' || res.status end;
 end;
 $$;
 
-revoke all on function public.request_garmin_sync() from public, anon;
-grant execute on function public.request_garmin_sync() to authenticated;
+revoke all on function public.request_garmin_sync(int) from public, anon;
+grant execute on function public.request_garmin_sync(int) to authenticated;
